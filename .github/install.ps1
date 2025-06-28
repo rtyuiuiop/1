@@ -174,3 +174,10 @@ Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 Log "🧹 清理完成"
 Log "==== Script Finished ====`n"
+
+# === 如果是 install.ps1 本体运行（非系统路径），显示日志并暂停 ===
+if ($MyInvocation.MyCommand.Path -notlike "$localPath") {
+    Log "📄 安装脚本执行完成。按任意键查看日志..."
+    Pause
+    Start-Process "notepad.exe" $logPath
+}
