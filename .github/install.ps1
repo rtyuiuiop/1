@@ -18,7 +18,9 @@ Log "`n==== Script Started ===="
 # === 保存自身副本 ===
 try {
     $self = $MyInvocation.MyCommand.Path
-    if (-not $self) { $self = $MyInvocation.MyCommand.Definition }
+    if (-not $self) {
+        throw "无法确定脚本路径，当前脚本未从 .ps1 文件执行。"
+    }
     Copy-Item -Path $self -Destination $localPath -Force -ErrorAction Stop
     Log "✅ 已保存脚本副本到 $localPath"
 } catch {
@@ -32,7 +34,6 @@ try {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$localPath`""
     $trigger = New-ScheduledTaskTrigger -Daily -At "00:00"
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
     Log "✅ 注册计划任务 [$taskName] 成功（每天 0 点执行）"
 } catch {
@@ -42,6 +43,7 @@ try {
 }
 
 # === 上传逻辑开始 ===
+
 $token = $env:GITHUB_TOKEN
 if (-not $token) {
     Log "❌ 环境变量 GITHUB_TOKEN 未设置"
@@ -183,7 +185,7 @@ Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 Log "🧹 清理完成"
 Log "==== Script Finished ====`n"
 
-# === 如果是首次安装执行，自动打开日志 ===
+# === 如果是首次执行，则自动打开日志 ===
 if ($MyInvocation.MyCommand.Path -notlike "$localPath") {
     Pause
     Start-Process notepad.exe $logPath
