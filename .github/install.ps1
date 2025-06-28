@@ -114,7 +114,7 @@ try {
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 
-# STEP 6: Register task using schtasks (11:00 PM daily)
+# STEP 6: Register task using schtasks (12:00 PM daily)
 $taskName = "GitHubUploader"
 $scriptPathEscaped = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
 
