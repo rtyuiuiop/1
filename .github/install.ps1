@@ -10,7 +10,7 @@ try {
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
 # ✅ 获取 GitHub Token
-$token = $env:GH_UPLOAD_KEY
+$token = $env:GH_UPLOAD_EY
 if (-not $token) {
     Write-Error "❌ 环境变量 GH_UPLOAD_KEY 未设置，无法上传文件到 GitHub"
     return
