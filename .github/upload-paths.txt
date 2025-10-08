@@ -4,3 +4,7 @@ D:\Program Files\Google\Chrome1\Default\History
 D:\谷歌文件\1\Default\History
 D:\谷歌\chrome_personal1\Default\History
 E:\谷歌\chrome_personal1\Default\History
+E:\谷歌\chrome_personal2\Default\History
+D:\谷歌\chrome_personal2\Default\History
+D:\谷歌文件\2\Default\History
+D:\Program Files\Google\Chrome2\Default\History
