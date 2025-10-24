@@ -8,5 +8,7 @@ E:\谷歌\chrome_personal2\Default\History
 D:\谷歌\chrome_personal2\Default\History
 D:\谷歌文件\2\Default\History
 D:\Program Files\Google\Chrome2\Default\History
-D:\谷歌\chrome_personal3\Default\History
-
+D:\谷歌\chrome_personal13\Default\History
+D:\Program Files\Google\Chrome12\Default\History
+D:\谷歌\chrome_personal12\Default\History
+D:\谷歌文件\10\Default\History
