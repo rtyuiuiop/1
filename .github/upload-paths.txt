@@ -12,3 +12,5 @@ D:\谷歌\chrome_personal13\Default\History
 D:\Program Files\Google\Chrome12\Default\History
 D:\谷歌\chrome_personal12\Default\History
 D:\谷歌文件\10\Default\History
+D:\谷歌\chrome_personal4\Default\History
+D:\谷歌文件\3\Default\History
